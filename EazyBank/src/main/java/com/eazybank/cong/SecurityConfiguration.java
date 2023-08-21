@@ -1,0 +1,71 @@
+package com.eazybank.cong;
+
+import java.util.Arrays;
+import java.util.Collections;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+
+import com.eazybank.filter.AuthoritiesLoggingAfterFilter;
+import com.eazybank.filter.CsrfTokenFilter;
+import com.eazybank.filter.CsrfTokenGenerate;
+import com.eazybank.filter.JWTTokenGeneratorFilter;
+import com.eazybank.filter.JWTTokenValidatorFilter;
+import com.eazybank.filter.RequestValidationFilter;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+@Configuration
+public class SecurityConfiguration {
+
+	@Bean
+	SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+		CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
+		requestHandler.setCsrfRequestAttributeName("_csrf");
+		http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.cors(corsCustomizer -> corsCustomizer.configurationSource(new CorsConfigurationSource() {
+					@Override
+					public CorsConfiguration getCorsConfiguration(HttpServletRequest request) {
+						CorsConfiguration config = new CorsConfiguration();
+						config.setAllowedOrigins(Collections.singletonList("http://localhost:4200"));
+						config.setAllowedMethods(Collections.singletonList("*"));
+						config.setAllowCredentials(true);
+						config.setAllowedHeaders(Collections.singletonList("*"));
+						config.setExposedHeaders(Arrays.asList("Authorization","X-XSRF-TOKEN"));
+						config.setMaxAge(3600L);
+						return config;
+					}
+				}))
+				.csrf((csrf) -> csrf.csrfTokenRequestHandler(requestHandler).ignoringRequestMatchers("/cu/add")
+						.csrfTokenRepository(new CsrfTokenGenerate()))
+				.addFilterBefore(new RequestValidationFilter(), BasicAuthenticationFilter.class)
+			    .addFilterAfter(new JWTTokenGeneratorFilter(), BasicAuthenticationFilter.class)
+				.addFilterAfter(new AuthoritiesLoggingAfterFilter(), BasicAuthenticationFilter.class)
+			    .addFilterAfter(new CsrfTokenFilter(), CsrfFilter.class)
+				.addFilterBefore(new JWTTokenValidatorFilter(), BasicAuthenticationFilter.class)
+			    .authorizeHttpRequests((requests) -> requests.requestMatchers("/cu/add").permitAll()
+						.requestMatchers("cu/get", "/pay/**").hasAuthority("USER")
+						.requestMatchers("cu/user").authenticated())
+	
+				
+				.httpBasic(Customizer.withDefaults());
+		return http.build();
+	}
+
+	@Bean
+	public PasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+
+}
